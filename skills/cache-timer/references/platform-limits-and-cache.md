@@ -41,7 +41,8 @@ Source: [Prompt caching (API)](https://platform.claude.com/docs/en/build-with-cl
 - Cache read: **0.1x** base input on most models; **0.05x** on Opus 5.5 and Sonnet 5.5; **0.025x** on Fable 5.1/5.2 and Mythos 5.1/5.2.
 
 ### Recommended pacing
-- 1-hour TTL: default wait **20 minutes**, never above ~45 (and under ~25 for a single background command).
+- The usable wait is the **smaller** of two limits: the cache ceiling (TTL minus a safety margin) and how long the host lets one wait run. Each wake-up is itself a request, so it refreshes the cache; a longer gap is bridged with several short waits, never one long one.
+- 1-hour TTL: cache ceiling ~45 minutes, but a single background command times out at 30 minutes by default, so in Claude Code the effective ceiling is **25 minutes**. Default wait **20 minutes**. (Only if `BASH_MAX_TIMEOUT_MS` / the background timeout is raised does the 45-minute cache ceiling become the limit.)
 - 5-minute TTL (overage, API, subagents): wait **at most 4 minutes**; for longer gaps checkpoint instead of waiting.
 
 ## 2. OpenAI Codex

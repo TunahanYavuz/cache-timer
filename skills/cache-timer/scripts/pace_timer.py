@@ -25,12 +25,15 @@ import time
 # ttl_mins = prompt cache lifetime after the LAST request (it is refreshed on every
 # cache hit). Waits are sized to stay safely inside it. Verify values against
 # references/platform-limits-and-cache.md before changing them.
+# host_max_wait_mins = longest single wait the host allows. Claude Code background
+# commands time out after 30 minutes by default, so one wait is capped at 25.
+# The effective ceiling is min(cache ceiling, host limit).
 PLATFORM_PRESETS = {
-    "claude-sub": {"ttl_mins": 60, "preferred_wait_mins": 20, "label": "Claude Code (subscription within plan usage, 1h TTL)"},
-    "claude-api": {"ttl_mins": 5, "preferred_wait_mins": 4, "label": "Claude Code (API key / credits / overage / subagents, 5m TTL)"},
-    "codex": {"ttl_mins": 30, "preferred_wait_mins": 18, "label": "OpenAI Codex (GPT-5.6+, 30m minimum cache lifetime)"},
-    "codex-legacy": {"ttl_mins": 5, "preferred_wait_mins": 4, "label": "OpenAI Codex (pre-5.6 models, in-memory cache ~5-10m)"},
-    "antigravity": {"ttl_mins": 5, "preferred_wait_mins": 4, "label": "Google Antigravity (cache TTL undocumented, assume 5m)"},
+    "claude-sub": {"ttl_mins": 60, "preferred_wait_mins": 20, "host_max_wait_mins": 25, "label": "Claude Code (subscription within plan usage, 1h TTL)"},
+    "claude-api": {"ttl_mins": 5, "preferred_wait_mins": 4, "host_max_wait_mins": 25, "label": "Claude Code (API key / credits / overage / subagents, 5m TTL)"},
+    "codex": {"ttl_mins": 30, "preferred_wait_mins": 18, "host_max_wait_mins": None, "label": "OpenAI Codex (GPT-5.6+, 30m minimum cache lifetime)"},
+    "codex-legacy": {"ttl_mins": 5, "preferred_wait_mins": 4, "host_max_wait_mins": None, "label": "OpenAI Codex (pre-5.6 models, in-memory cache ~5-10m)"},
+    "antigravity": {"ttl_mins": 5, "preferred_wait_mins": 4, "host_max_wait_mins": None, "label": "Google Antigravity (cache TTL undocumented, assume 5m)"},
 }
 
 # ScheduleWakeup (Claude Code /loop) clamps delays to [60, 3600] seconds.
@@ -46,11 +49,13 @@ def safe_wait_ceiling(ttl_mins: int) -> int:
     return max(1, ttl_mins - margin)
 
 
-def compute_plan(used_pct: float, reset_mins: int, ttl_mins: int, preferred_wait: int, planned_steps: int, threshold: float):
+def compute_plan(used_pct: float, reset_mins: int, ttl_mins: int, preferred_wait: int, planned_steps: int, threshold: float, host_max_wait=None):
     remaining_pct = max(0.0, 100.0 - used_pct)
     now = datetime.datetime.now()
     reset_at = now + datetime.timedelta(minutes=reset_mins)
     max_safe_wait = safe_wait_ceiling(ttl_mins)
+    if host_max_wait:
+        max_safe_wait = max(1, min(max_safe_wait, host_max_wait))
 
     base = {
         "used_pct": used_pct,
@@ -132,6 +137,12 @@ def main():
     parser.add_argument("--platform", choices=list(PLATFORM_PRESETS.keys()), default="claude-sub", help="Target platform preset.")
     parser.add_argument("--cache-ttl-mins", type=int, default=None, help="Override prompt cache TTL in minutes.")
     parser.add_argument("--preferred-wait-mins", type=int, default=None, help="Preferred pause duration in minutes.")
+    parser.add_argument(
+        "--max-wait-mins",
+        type=int,
+        default=None,
+        help="Longest single wait the host allows (default: 25 for claude-* presets, none otherwise).",
+    )
     parser.add_argument("--planned-steps", type=int, default=5, help="Number of remaining atomic steps.")
     parser.add_argument("--threshold", type=float, default=75.0, help="Usage %% threshold to activate pacing (default: 75).")
     parser.add_argument(
@@ -158,6 +169,7 @@ def main():
         preferred_wait=preferred_wait,
         planned_steps=args.planned_steps,
         threshold=args.threshold,
+        host_max_wait=args.max_wait_mins if args.max_wait_mins is not None else preset["host_max_wait_mins"],
     )
     plan["platform"] = preset["label"]
 
@@ -172,7 +184,7 @@ def main():
         print(f"Mode:      {plan['mode']}")
         print(f"Reason:    {plan['reason']}")
         print(f"Reset at:  {plan['reset_at']} ({plan['reset_mins']}m remaining)")
-        print(f"Cache TTL: {plan['cache_ttl_mins']}m (safe wait ceiling {plan['max_safe_wait_mins']}m)")
+        print(f"Cache TTL: {plan['cache_ttl_mins']}m (effective wait ceiling {plan['max_safe_wait_mins']}m)")
         if plan["mode"] == "PACED_STEPS":
             print(f"Recommended wait: {plan['recommended_wait_mins']}m (resume at {plan['resume_at']})")
             print(f"Budget per step:  ~{plan['estimated_budget_per_step_pct']}% across {plan['planned_steps']} steps")

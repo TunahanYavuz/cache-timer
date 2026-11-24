@@ -55,7 +55,7 @@ If automatic inspection is unavailable and `$ARGUMENTS` did not supply the value
 
 Read `references/platform-limits-and-cache.md` for sources and details. Safe defaults:
 
-- **Claude Code, subscription within plan usage (`claude-sub`):** main conversation TTL **1 hour**. Default wait **20 minutes**, never above ~45.
+- **Claude Code, subscription within plan usage (`claude-sub`):** main conversation TTL **1 hour**. Default wait **20 minutes**. The effective ceiling is **25 minutes**: the cache would allow ~45, but a single background wait times out at 30 minutes, and the smaller limit wins.
 - **Claude Code, API key / usage credits / overage / cloud provider (`claude-api`):** TTL **5 minutes**. Wait **at most 4 minutes**. A subscription that runs past its included usage drops to this TTL automatically. Override with `promptCacheTtl: "1h"` or `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` (v2.1.242+; 1-hour cache writes cost 2x instead of 1.25x on the API).
 - **Claude Code subagents, forks, compaction:** TTL **5 minutes** even on a subscription (`subagentPromptCacheTtl` can raise it).
 - **OpenAI Codex, GPT-5.6+ (`codex`):** **30-minute minimum** cache lifetime. Wait **15-20 minutes**.
@@ -87,7 +87,7 @@ Do **not** run a long foreground `sleep` inside an agent shell:
 
 Use one of these instead:
 
-- **Claude Code, background command (preferred):** run `python3 scripts/pace_timer.py ... --sleep` with `run_in_background: true`. The agent is notified when it exits (it prints `TIMER_DONE`). Background commands time out after 30 minutes by default, so keep a single wait under ~25 minutes.
+- **Claude Code, background command (preferred):** run `python3 scripts/pace_timer.py ... --sleep` with `run_in_background: true`. The agent is notified when it exits (it prints `TIMER_DONE`). Background commands time out after 30 minutes by default, which is why the `claude-*` presets cap a single wait at 25 minutes (`--max-wait-mins` changes this if the timeout was raised). Every wake-up is a request that refreshes the cache, so longer gaps are bridged with repeated short waits.
 - **Claude Code `/loop`:** run `python3 scripts/pace_timer.py ... --schedule` to get a delay in seconds (clamped to 60-3600) and pass it to the self-paced wakeup.
 - **Plain terminal (outside the agent):** `--sleep` in the foreground is fine; it prints a countdown and `TIMER_DONE`.
 - **Anything else:** print the `resume_at` time and ask the user to send a short message before the `cache_deadline`.
@@ -107,5 +107,5 @@ While in paced mode, follow these rules on every turn:
 - **Waiting 20 minutes on a 5-minute cache destroys the savings:** check whether Claude Code is still within subscription usage (1h TTL) or has fallen back to credits/overage (5m TTL).
 - **Never wait if remaining quota is below 5%:** at 95%+ with hours left, even keepalive turns can trigger the lockout. Save a checkpoint to disk and pause until reset.
 - **Subagents use 5-minute TTLs:** in Claude Code, subagents and forks get 5 minutes even on a subscription. For orchestrator-style sessions, give each subagent one narrow task and have it write a handoff file when its context grows, instead of resuming a large subagent after a long gap (a cold resume re-reads its whole history).
-- **Bridging to the reset costs requests:** with a 1-hour TTL and a 3-hour gap you still need about 3 keepalive requests; with a 5-minute TTL you need dozens, so checkpointing is usually cheaper.
+- **Bridging to the reset costs requests:** with a 1-hour TTL and a 3-hour gap, 25-minute waits mean about 7 keepalive requests (3 if the host allows 45-minute waits); with a 5-minute TTL you need dozens, so checkpointing is usually cheaper.
 - **Idle compaction:** on the 1-hour TTL, Claude Code can compact a long idle conversation automatically (v2.1.290+). Set `idleCompaction: false` to turn it off.

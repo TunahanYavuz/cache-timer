@@ -47,8 +47,8 @@ $cache-timer 80% 2h30m codex
 2. **Matches wait timers to the real Prompt Cache TTL** so pauses never expire the KV cache:
    - **Claude Code (Subscription):** 1-hour main cache TTL -> safe 20-minute default pause.
    - **Claude Code (API / Credits / Subagents):** 5-minute TTL -> caps wait at 4 minutes and warns before cache expiry.
-   - **OpenAI Codex (GPT-5.6+):** 30-minute default TTL -> safe 15-18 minute pause.
-   - **Google Antigravity:** Tracks Gemini vs. Claude/GPT quotas independently and suggests switching model groups when one nears exhaustion.
+   - **OpenAI Codex:** GPT-5.6+ has a 30-minute minimum TTL -> 15-20 minute pause; older models (~5-10m) -> 4 minute cap.
+   - **Google Antigravity:** Cache TTL is undocumented, so it assumes a short TTL; tracks per-model quota and suggests switching models when one nears exhaustion.
 3. **Executes step-by-step with cache-safe hygiene** (no mid-session model switches, fast-mode toggles, or cold `/compact` calls).
 
 ## Repository Structure
